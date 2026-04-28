@@ -1,0 +1,32 @@
+{
+  "name": "kontent-cache-proxy",
+  "version": "0.1.0",
+  "description": "Kontent.ai Delivery API dependency-aware cache proxy",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsc",
+    "start": "node --env-file=.env dist/index.js",
+    "dev": "tsx watch src/index.ts",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "fastify": "^5.2.1",
+    "pino": "^9.6.0",
+    "proper-lockfile": "^4.1.2",
+    "undici": "^7.5.0",
+    "zod": "^3.24.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.14.1",
+    "@types/proper-lockfile": "^4.1.4",
+    "nock": "^14.0.3",
+    "tsx": "^4.19.3",
+    "typescript": "^5.8.3",
+    "vitest": "^3.1.2"
+  }
+}

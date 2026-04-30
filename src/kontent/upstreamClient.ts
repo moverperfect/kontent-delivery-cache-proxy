@@ -1,6 +1,17 @@
 import type { AppConfig } from "../config.js";
 
 export interface UpstreamFetchParams {
+  telemetry?: {
+    onAttempt?: (meta: {
+      attempt: number;
+      maxAttempts: number;
+      startTimeMs: number;
+      durationMs: number;
+      success: boolean;
+      statusCode?: number;
+      timedOut: boolean;
+    }) => void;
+  };
   url: string;
   method: string;
   headers: Record<string, string>;
@@ -31,6 +42,7 @@ export async function fetchUpstream(
     if (config.UPSTREAM_WAIT_FOR_NEW_CONTENT) {
       mergedHeaders["x-kc-wait-for-loading-new-content"] = "true";
     }
+    const startTimeMs = Date.now();
     try {
       const res = await fetch(params.url, {
         method: params.method,
@@ -50,12 +62,30 @@ export async function fetchUpstream(
         headers[k.toLowerCase()] = v;
       });
 
+      params.telemetry?.onAttempt?.({
+        attempt: attempt + 1,
+        maxAttempts,
+        startTimeMs,
+        durationMs: Date.now() - startTimeMs,
+        success: true,
+        statusCode: res.status,
+        timedOut: false,
+      });
       return {
         status: res.status,
         headers,
         body: buf,
       };
     } catch (e) {
+      const timedOut = e instanceof Error && e.name === "AbortError";
+      params.telemetry?.onAttempt?.({
+        attempt: attempt + 1,
+        maxAttempts,
+        startTimeMs,
+        durationMs: Date.now() - startTimeMs,
+        success: false,
+        timedOut,
+      });
       clearTimeout(timeout);
       lastErr = e;
       if (attempt < maxAttempts - 1) {

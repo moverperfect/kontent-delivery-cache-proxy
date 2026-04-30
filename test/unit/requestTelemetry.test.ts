@@ -2,7 +2,9 @@ import Fastify from "fastify";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AppConfig } from "../../src/config.js";
 
-const trackRequestMock = vi.fn();
+const { trackRequestMock } = vi.hoisted(() => ({
+  trackRequestMock: vi.fn(),
+}));
 
 vi.mock("../../src/observability/appInsights.js", () => ({
   isAppInsightsEnabled: () => true,

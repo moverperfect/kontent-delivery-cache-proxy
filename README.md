@@ -8,7 +8,7 @@ See `docs/product-design-document.md` for goals, security model, and cache seman
 
 ```bash
 pnpm install
-export PURGE_TOKEN="dev-token"
+export PURGE_TOKEN="replace-with-long-random-secret"
 export CACHE_DIR="./.cache-proxy"
 pnpm run dev
 ```
@@ -48,7 +48,7 @@ Full list matches section 10 of the product design document.
 docker compose up --build
 ```
 
-Set `PURGE_TOKEN` in `docker-compose.yml` (or override via env) before production use.
+Set `PURGE_TOKEN` in `docker-compose.yml` (or override via env). It is required in all environments.
 
 ## Scripts
 

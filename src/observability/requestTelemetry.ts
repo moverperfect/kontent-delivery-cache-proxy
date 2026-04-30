@@ -4,9 +4,13 @@ import { randomBytes } from "node:crypto";
 import { isAppInsightsEnabled, trackRequest } from "./appInsights.js";
 import type { AppConfig } from "../config.js";
 
-function parseTraceparent(value?: string): { traceId: string; parentSpanId?: string } {
-  const m = value?.match(/^00-([0-9a-f]{32})-([0-9a-f]{16})-[0-9a-f]{2}$/i);
-  if (m) return { traceId: m[1], parentSpanId: m[2] };
+function parseTraceparent(value?: string): {
+  traceId: string;
+  parentSpanId?: string;
+  traceFlags?: string;
+} {
+  const m = value?.match(/^00-([0-9a-f]{32})-([0-9a-f]{16})-([0-9a-f]{2})$/i);
+  if (m) return { traceId: m[1], parentSpanId: m[2], traceFlags: m[3].toLowerCase() };
   return { traceId: randomBytes(16).toString("hex") };
 }
 
@@ -19,6 +23,7 @@ export const requestTelemetryPlugin = fp(async (app: FastifyInstance, config: Ap
       traceId: parsed.traceId,
       spanId: randomBytes(8).toString("hex"),
       parentSpanId: parsed.parentSpanId,
+      traceFlags: parsed.traceFlags,
       startTimeMs: Date.now(),
       properties: {},
     };

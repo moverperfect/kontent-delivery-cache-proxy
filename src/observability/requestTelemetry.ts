@@ -35,7 +35,7 @@ export const requestTelemetryPlugin = fp(async (app: FastifyInstance, config: Ap
 
     trackRequest(
       {
-        id: request.telemetry.spanId,
+        id: request.telemetry.traceId,
         name: `${request.method} ${request.routeOptions.url ?? url}`,
         url,
         duration: Date.now() - request.telemetry.startTimeMs,

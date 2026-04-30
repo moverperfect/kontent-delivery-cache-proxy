@@ -1,11 +1,7 @@
 import * as appInsights from "applicationinsights";
 import type { TelemetryClient } from "applicationinsights";
-import type { TelemetryItem } from "applicationinsights/out/src/declarations/generated/models/index.js";
 import { randomBytes } from "node:crypto";
 import type { AppConfig } from "../config.js";
-
-const OPERATION_ID_PROP = "__ai.operation.id";
-const OPERATION_PARENT_ID_PROP = "__ai.operation.parentId";
 
 let initialized = false;
 let enabled = false;
@@ -14,6 +10,12 @@ let client: TelemetryClient | undefined;
 export interface TelemetryContext {
   operationId?: string;
   parentId?: string;
+}
+
+interface MinimalSpanContext {
+  traceId: string;
+  spanId: string;
+  traceFlags: number;
 }
 
 function isTruthy(value?: string): boolean {
@@ -57,48 +59,18 @@ export function sanitizeUrl(url: string, redactQueryValues: boolean): string {
   }
 }
 
-function withTelemetryContext<T extends { properties?: Record<string, any> }>(
-  input: T,
-  context?: TelemetryContext,
-): T {
-  if (!context?.operationId && !context?.parentId) return input;
+function withTelemetryContext<T>(context: TelemetryContext | undefined, fn: () => T): T {
+  if (!context?.operationId || !context.parentId) return fn();
 
-  return {
-    ...input,
-    properties: {
-      ...(input.properties ?? {}),
-      ...(context.operationId ? { [OPERATION_ID_PROP]: context.operationId } : {}),
-      ...(context.parentId ? { [OPERATION_PARENT_ID_PROP]: context.parentId } : {}),
-    },
+  const spanContext: MinimalSpanContext = {
+    traceId: context.operationId,
+    spanId: context.parentId,
+    traceFlags: 1,
   };
-}
+  const operation = appInsights.startOperation(spanContext);
+  if (!operation) return fn();
 
-function installTelemetryContextProcessor(): void {
-  if (!client) return;
-
-  const activeClient = client;
-
-  activeClient.addTelemetryProcessor((envelope: TelemetryItem) => {
-    const baseData = envelope.data?.baseData as { properties?: Record<string, unknown> } | undefined;
-    const properties = baseData?.properties;
-    if (!properties) return true;
-
-    const operationId = properties[OPERATION_ID_PROP];
-    const parentId = properties[OPERATION_PARENT_ID_PROP];
-    if (!operationId && !parentId) return true;
-
-    envelope.tags ??= {};
-    if (operationId) {
-      envelope.tags[activeClient.context.keys.operationId] = String(operationId);
-      delete properties[OPERATION_ID_PROP];
-    }
-    if (parentId) {
-      envelope.tags[activeClient.context.keys.operationParentId] = String(parentId);
-      delete properties[OPERATION_PARENT_ID_PROP];
-    }
-
-    return true;
-  });
+  return appInsights.wrapWithCorrelationContext(fn, operation)();
 }
 
 export function initAppInsights(config: AppConfig): void {
@@ -120,7 +92,6 @@ export function initAppInsights(config: AppConfig): void {
   client = appInsights.defaultClient;
   client.config.samplingPercentage = config.APPINSIGHTS_SAMPLING_PERCENTAGE;
   client.context.tags[client.context.keys.cloudRole] = config.APPINSIGHTS_ROLE_NAME;
-  installTelemetryContextProcessor();
 }
 
 export function initAppInsightsFromEnv(env: NodeJS.ProcessEnv = process.env): void {
@@ -182,7 +153,9 @@ export function trackRequest(
   context?: TelemetryContext,
 ): void {
   if (!isAppInsightsEnabled()) return;
-  client!.trackRequest(withTelemetryContext(input, context));
+  withTelemetryContext(context, () => {
+    client!.trackRequest(input);
+  });
 }
 
 export function trackDependency(
@@ -191,15 +164,12 @@ export function trackDependency(
   context?: TelemetryContext,
 ): void {
   if (!isAppInsightsEnabled()) return;
-  client!.trackDependency(
-    withTelemetryContext(
-      {
+  withTelemetryContext(context, () => {
+    client!.trackDependency({
         ...input,
         data: input.data ? sanitizeUrl(input.data, redactQueryValues) : input.data,
-      },
-      context,
-    ),
-  );
+    });
+  });
 }
 
 export function trackAvailability(input: Parameters<TelemetryClient["trackAvailability"]>[0]): void {
@@ -212,7 +182,9 @@ export function trackException(
   context?: TelemetryContext,
 ): void {
   if (!isAppInsightsEnabled()) return;
-  client!.trackException(withTelemetryContext(input, context));
+  withTelemetryContext(context, () => {
+    client!.trackException(input);
+  });
 }
 
 export async function flushTelemetry(): Promise<void> {

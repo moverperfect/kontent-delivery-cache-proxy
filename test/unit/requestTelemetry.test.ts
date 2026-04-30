@@ -97,4 +97,28 @@ describe("requestTelemetryPlugin", () => {
 
     await app.close();
   });
+
+  it("rejects all-zero traceparent ids and starts a fresh trace", async () => {
+    const { requestTelemetryPlugin } = await import("../../src/observability/requestTelemetry.js");
+    const app = Fastify();
+
+    await app.register(requestTelemetryPlugin, config);
+    app.get("/items/:id", async () => ({ ok: true }));
+
+    await app.inject({
+      method: "GET",
+      url: "/items/123",
+      headers: {
+        traceparent: "00-00000000000000000000000000000000-0000000000000000-01",
+      },
+    });
+
+    expect(trackRequestMock).toHaveBeenCalledTimes(1);
+    const [, context] = trackRequestMock.mock.calls[0];
+    expect(context.operationId).toMatch(/^[0-9a-f]{32}$/);
+    expect(context.operationId).not.toBe("00000000000000000000000000000000");
+    expect(context.parentId).toBeUndefined();
+
+    await app.close();
+  });
 });

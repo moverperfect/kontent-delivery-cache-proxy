@@ -182,7 +182,9 @@ export async function registerDeliveryProxyRoutes(
     if (request.telemetry) {
       forward.traceparent = `00-${request.telemetry.traceId}-${request.telemetry.spanId}-${request.telemetry.traceFlags ?? "01"}`;
       const incomingState = request.headers.tracestate;
-      if (typeof incomingState === "string") forward.tracestate = incomingState;
+      if (typeof incomingState === "string" && request.telemetry.parentSpanId) {
+        forward.tracestate = incomingState;
+      }
     }
 
     const depTelemetry =

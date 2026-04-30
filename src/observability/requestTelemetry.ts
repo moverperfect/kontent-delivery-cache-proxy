@@ -10,7 +10,13 @@ function parseTraceparent(value?: string): {
   traceFlags?: string;
 } {
   const m = value?.match(/^00-([0-9a-f]{32})-([0-9a-f]{16})-([0-9a-f]{2})$/i);
-  if (m) return { traceId: m[1], parentSpanId: m[2], traceFlags: m[3].toLowerCase() };
+  if (
+    m &&
+    m[1] !== "00000000000000000000000000000000" &&
+    m[2] !== "0000000000000000"
+  ) {
+    return { traceId: m[1], parentSpanId: m[2], traceFlags: m[3].toLowerCase() };
+  }
   return { traceId: randomBytes(16).toString("hex") };
 }
 

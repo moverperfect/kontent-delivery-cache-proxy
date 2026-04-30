@@ -22,7 +22,7 @@ export function initAppInsights(config: AppConfig): void {
   appInsights
     .setup(config.APPLICATIONINSIGHTS_CONNECTION_STRING)
     .setDistributedTracingMode(appInsights.DistributedTracingModes.AI_AND_W3C)
-    .setAutoCollectRequests(config.APPINSIGHTS_ENABLE_REQUEST_TRACKING)
+    .setAutoCollectRequests(false)
     .setAutoCollectDependencies(false)
     .setAutoCollectExceptions(false)
     .setAutoCollectPerformance(false)

@@ -24,6 +24,7 @@ export const requestTelemetryPlugin = fp(async (app: FastifyInstance, config: Ap
 
   app.addHook("onResponse", async (request, reply) => {
     if (!isAppInsightsEnabled()) return;
+    if (!config.APPINSIGHTS_ENABLE_REQUEST_TRACKING) return;
     if (!request.telemetry) return;
     const url = request.url.split("?")[0] ?? request.url;
     const isHealth = url === "/healthz" || url === "/readyz";

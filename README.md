@@ -58,3 +58,26 @@ Set `PURGE_TOKEN` in `docker-compose.yml` (or override via env). It is required 
 | `pnpm run build` | Compile to `dist/` |
 | `pnpm start` | Run `dist/index.js` |
 | `pnpm test` | Vitest unit + integration tests |
+
+## Application Insights observability
+
+Set `APPLICATIONINSIGHTS_CONNECTION_STRING` to enable Azure Application Insights. Optional controls:
+- `APPINSIGHTS_ENABLED` (default: true when connection string exists)
+- `APPINSIGHTS_SAMPLING_PERCENTAGE` (0-100, default 100)
+- `APPINSIGHTS_ROLE_NAME` (default `kontent-cache-proxy`)
+- `APPINSIGHTS_ENABLE_REQUEST_TRACKING` (default true)
+- `APPINSIGHTS_ENABLE_DEPENDENCY_TRACKING` (default true)
+- `APPINSIGHTS_ENABLE_AVAILABILITY_TRACKING` (default true)
+- `APPINSIGHTS_TRACK_HEALTH_ENDPOINTS` (default false)
+- `APPINSIGHTS_REDACT_QUERY_VALUES` (default true)
+
+### Correlation and telemetry
+- Inbound `traceparent`/`tracestate` are honored when present.
+- Outbound upstream calls propagate W3C trace headers.
+- Request/dependency/availability/exception telemetry is emitted with cache dimensions (`cacheStatus`, `environmentId`, `mode`, `proxyRequestId`, `upstreamDurationMs`).
+- Logs include `traceId`, `spanId`, `parentSpanId`, and `requestId` for incident debugging.
+
+### Cost and sampling guidance
+- Start with `APPINSIGHTS_SAMPLING_PERCENTAGE=25` in high-throughput environments.
+- Keep `APPINSIGHTS_REDACT_QUERY_VALUES=true` to reduce accidental PII collection.
+- Keep health endpoint tracking disabled unless you need availability trend charts.

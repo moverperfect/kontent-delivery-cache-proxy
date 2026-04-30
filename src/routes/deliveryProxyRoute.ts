@@ -17,6 +17,7 @@ import type { Logger } from "../observability/logger.js";
 import { newRequestId } from "../observability/requestContext.js";
 import { isInternalAuthorized } from "../security/auth.js";
 import { redactHeaders } from "../security/redaction.js";
+import { trackDependency, trackException } from "../observability/appInsights.js";
 
 type ProxyMode = "delivery" | "preview";
 
@@ -178,9 +179,68 @@ export async function registerDeliveryProxyRoutes(
     };
 
     const forward = collectForwardHeaders(request);
+    if (request.telemetry) {
+      forward.traceparent = `00-${request.telemetry.traceId}-${request.telemetry.spanId}-01`;
+      const incomingState = request.headers.tracestate;
+      if (typeof incomingState === "string") forward.tracestate = incomingState;
+    }
+
+    const depTelemetry =
+      request.telemetry && config.APPINSIGHTS_ENABLE_DEPENDENCY_TRACKING
+        ? {
+          onAttempt: (m: {
+            attempt: number;
+            maxAttempts: number;
+            startTimeMs: number;
+            durationMs: number;
+            success: boolean;
+            statusCode?: number;
+            timedOut: boolean;
+          }) => {
+            trackDependency(
+              {
+                target: new URL(upstreamUrl).host,
+                name: `${method} ${new URL(upstreamUrl).pathname}`,
+                data: upstreamUrl,
+                duration: m.durationMs,
+                resultCode: String(m.statusCode ?? 0),
+                success: m.success,
+                dependencyTypeName: "HTTP",
+                properties: {
+                  attempt: String(m.attempt),
+                  maxAttempts: String(m.maxAttempts),
+                  timedOut: String(m.timedOut),
+                  mode,
+                  environmentId,
+                },
+                tagOverrides: {
+                  "ai.operation.id": request.telemetry!.traceId,
+                  "ai.operation.parentId": request.telemetry!.spanId,
+                },
+              },
+              config.APPINSIGHTS_REDACT_QUERY_VALUES,
+            );
+          },
+        }
+      : undefined;
+
+    const attachProxyTelemetryProps = () => {
+      if (!request.telemetry) return;
+      request.telemetry.properties = {
+        ...(request.telemetry.properties ?? {}),
+        cacheStatus: cacheHdr,
+        environmentId,
+        mode,
+        proxyRequestId: requestId,
+        upstreamDurationMs: String(upstreamMs),
+      };
+    };
 
     const logDone = (extra?: Record<string, unknown>) => {
       logger.info({
+        traceId: request.telemetry?.traceId,
+        spanId: request.telemetry?.spanId,
+        parentSpanId: request.telemetry?.parentSpanId,
         requestId,
         method,
         path: request.url,
@@ -201,6 +261,7 @@ export async function registerDeliveryProxyRoutes(
           url: upstreamUrl,
           method,
           headers: forward,
+          ...(depTelemetry ? { telemetry: depTelemetry } : {}),
         });
         upstreamMs = Date.now() - t0;
         metrics.upstreamRequestsTotal++;
@@ -208,6 +269,7 @@ export async function registerDeliveryProxyRoutes(
         metrics.recordRequest("BYPASS");
         copyResponseHeaders(reply, result.headers);
         await reply.code(result.status).send(method === "HEAD" ? undefined : result.body);
+        attachProxyTelemetryProps();
         logDone();
         return;
       }
@@ -226,6 +288,7 @@ export async function registerDeliveryProxyRoutes(
         reply.header("x-kontent-proxy-upstream-duration-ms", "0");
         copyResponseHeaders(reply, metaExisting.responseHeaders);
         await reply.code(metaExisting.status).send(method === "HEAD" ? undefined : bufferExisting);
+        attachProxyTelemetryProps();
         logDone();
         return;
       }
@@ -240,6 +303,7 @@ export async function registerDeliveryProxyRoutes(
           url: upstreamUrl,
           method,
           headers: forward,
+          ...(depTelemetry ? { telemetry: depTelemetry } : {}),
         });
         const dur = Date.now() - t0;
         metrics.upstreamRequestsTotal++;
@@ -306,6 +370,7 @@ export async function registerDeliveryProxyRoutes(
         reply.header("x-kontent-proxy-upstream-duration-ms", String(upstreamMs));
         copyResponseHeaders(reply, metaExisting.responseHeaders);
         await reply.code(metaExisting.status).send(method === "HEAD" ? undefined : bufferExisting);
+        attachProxyTelemetryProps();
         logDone();
         return;
       } else {
@@ -320,6 +385,7 @@ export async function registerDeliveryProxyRoutes(
       reply.header("x-kontent-proxy-upstream-duration-ms", String(upstreamMs));
       copyResponseHeaders(reply, result.headers);
       await reply.code(result.status).send(method === "HEAD" ? undefined : result.body);
+      attachProxyTelemetryProps();
       logDone();
     } catch (err) {
       metrics.upstreamErrorsTotal++;
@@ -354,6 +420,14 @@ export async function registerDeliveryProxyRoutes(
         reply.header("x-kontent-proxy-error", "upstream_fetch_failed");
       }
       metrics.recordRequest("MISS");
+      trackException({
+        exception: err instanceof Error ? err : new Error("upstream_fetch_failed"),
+        properties: { mode, environmentId, proxyRequestId: requestId },
+        tagOverrides: {
+          "ai.operation.id": request.telemetry?.traceId,
+          "ai.operation.parentId": request.telemetry?.spanId,
+        },
+      });
       await reply.code(502).send({ error: "upstream_fetch_failed", requestId });
       logDone({ errorCode: "upstream_fetch_failed" });
     }

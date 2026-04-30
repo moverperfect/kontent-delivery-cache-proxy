@@ -19,7 +19,9 @@
     "pino": "^9.6.0",
     "proper-lockfile": "^4.1.2",
     "undici": "^7.5.0",
-    "zod": "^3.24.2"
+    "zod": "^3.24.2",
+    "applicationinsights": "^3.4.0",
+    "fastify-plugin": "^5.0.1"
   },
   "devDependencies": {
     "@types/node": "^22.14.1",

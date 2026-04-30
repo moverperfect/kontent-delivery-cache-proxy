@@ -35,6 +35,23 @@ export async function fetchUpstream(
 ): Promise<UpstreamFetchResult> {
   const maxAttempts = config.UPSTREAM_RETRY_COUNT + 1;
   let lastErr: unknown;
+
+  const emitAttempt = (meta: {
+    attempt: number;
+    maxAttempts: number;
+    startTimeMs: number;
+    durationMs: number;
+    success: boolean;
+    statusCode?: number;
+    timedOut: boolean;
+  }) => {
+    try {
+      params.telemetry?.onAttempt?.(meta);
+    } catch {
+      /* telemetry must not break upstream fetches */
+    }
+  };
+
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), config.UPSTREAM_TIMEOUT_MS);
@@ -62,7 +79,7 @@ export async function fetchUpstream(
         headers[k.toLowerCase()] = v;
       });
 
-      params.telemetry?.onAttempt?.({
+      emitAttempt({
         attempt: attempt + 1,
         maxAttempts,
         startTimeMs,
@@ -77,8 +94,9 @@ export async function fetchUpstream(
         body: buf,
       };
     } catch (e) {
+      clearTimeout(timeout);
       const timedOut = e instanceof Error && e.name === "AbortError";
-      params.telemetry?.onAttempt?.({
+      emitAttempt({
         attempt: attempt + 1,
         maxAttempts,
         startTimeMs,
@@ -86,7 +104,6 @@ export async function fetchUpstream(
         success: false,
         timedOut,
       });
-      clearTimeout(timeout);
       lastErr = e;
       if (attempt < maxAttempts - 1) {
         await sleep(config.UPSTREAM_RETRY_BACKOFF_MS * Math.pow(2, attempt));

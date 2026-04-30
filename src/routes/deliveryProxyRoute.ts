@@ -204,7 +204,7 @@ export async function registerDeliveryProxyRoutes(
                 data: upstreamUrl,
                 duration: m.durationMs,
                 resultCode: String(m.statusCode ?? 0),
-                success: m.success,
+                success: m.success && (m.statusCode ?? 0) < 500,
                 dependencyTypeName: "HTTP",
                 properties: {
                   attempt: String(m.attempt),
@@ -213,12 +213,12 @@ export async function registerDeliveryProxyRoutes(
                   mode,
                   environmentId,
                 },
-                tagOverrides: {
-                  "ai.operation.id": request.telemetry!.traceId,
-                  "ai.operation.parentId": request.telemetry!.spanId,
-                },
               },
               config.APPINSIGHTS_REDACT_QUERY_VALUES,
+              {
+                operationId: request.telemetry!.traceId,
+                parentId: request.telemetry!.spanId,
+              },
             );
           },
         }
@@ -405,9 +405,11 @@ export async function registerDeliveryProxyRoutes(
         ) {
           setCacheHdr("STALE");
           metrics.recordRequest("STALE");
-          reply.header("x-kontent-proxy-upstream-duration-ms", String(Date.now() - started));
+          upstreamMs = Date.now() - started;
+          reply.header("x-kontent-proxy-upstream-duration-ms", String(upstreamMs));
           copyResponseHeaders(reply, metaExisting.responseHeaders);
           await reply.code(metaExisting.status).send(method === "HEAD" ? undefined : bufferExisting);
+          attachProxyTelemetryProps();
           logDone({ errorCode: "upstream_fetch_failed_recovered_stale" });
           return;
         }
@@ -415,19 +417,23 @@ export async function registerDeliveryProxyRoutes(
         /* fall through */
       }
 
-      reply.header("x-kontent-proxy-cache", "MISS");
+      setCacheHdr("MISS");
       if (config.NODE_ENV !== "production") {
         reply.header("x-kontent-proxy-error", "upstream_fetch_failed");
       }
       metrics.recordRequest("MISS");
-      trackException({
-        exception: err instanceof Error ? err : new Error("upstream_fetch_failed"),
-        properties: { mode, environmentId, proxyRequestId: requestId },
-        tagOverrides: {
-          "ai.operation.id": request.telemetry?.traceId,
-          "ai.operation.parentId": request.telemetry?.spanId,
+      upstreamMs = Date.now() - started;
+      attachProxyTelemetryProps();
+      trackException(
+        {
+          exception: err instanceof Error ? err : new Error("upstream_fetch_failed"),
+          properties: { mode, environmentId, proxyRequestId: requestId },
         },
-      });
+        {
+          operationId: request.telemetry?.traceId,
+          parentId: request.telemetry?.spanId,
+        },
+      );
       await reply.code(502).send({ error: "upstream_fetch_failed", requestId });
       logDone({ errorCode: "upstream_fetch_failed" });
     }

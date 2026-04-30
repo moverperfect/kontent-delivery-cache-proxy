@@ -1,6 +1,7 @@
 import { randomBytes } from "node:crypto";
 import Fastify from "fastify";
 import { loadConfig } from "./config.js";
+import type { AppConfig } from "./config.js";
 import { createLogger } from "./observability/logger.js";
 import { Metrics } from "./observability/metrics.js";
 import { registerHealthRoutes } from "./routes/healthRoute.js";
@@ -10,8 +11,7 @@ import { registerInternalInspectRoutes } from "./routes/internalInspectRoute.js"
 import { initAppInsights } from "./observability/appInsights.js";
 import { requestTelemetryPlugin } from "./observability/requestTelemetry.js";
 
-export async function buildServer() {
-  const config = loadConfig();
+export async function buildServer(config: AppConfig = loadConfig()) {
   const logger = createLogger(config);
   const metrics = new Metrics();
   initAppInsights(config);

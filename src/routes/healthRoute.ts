@@ -1,6 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { access, mkdir } from "node:fs/promises";
 import { constants } from "node:fs";
+import { randomBytes } from "node:crypto";
 import type { AppConfig } from "../config.js";
 import { trackAvailability } from "../observability/appInsights.js";
 
@@ -15,6 +16,7 @@ export async function registerHealthRoutes(
       config.APPINSIGHTS_TRACK_HEALTH_ENDPOINTS
     ) {
       trackAvailability({
+        id: randomBytes(8).toString("hex"),
         name: "GET /healthz",
         duration: Date.now() - started,
         success: true,
@@ -63,6 +65,7 @@ export async function registerHealthRoutes(
         .filter(Boolean)
         .join(",");
       trackAvailability({
+        id: randomBytes(8).toString("hex"),
         name: "GET /readyz",
         duration: Date.now() - started,
         success: status === "ready",

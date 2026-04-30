@@ -32,7 +32,7 @@ const envSchema = z.object({
   UPSTREAM_RETRY_COUNT: z.coerce.number().int().min(0).default(2),
   UPSTREAM_RETRY_BACKOFF_MS: z.coerce.number().int().min(0).default(500),
 
-  PURGE_TOKEN: z.string().optional(),
+  PURGE_TOKEN: z.string().min(1),
   DEBUG_HEADERS: z
     .string()
     .optional()
@@ -59,14 +59,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     throw new Error(`Invalid configuration: ${JSON.stringify(msg)}`);
   }
   const data = parsed.data;
-  const purgeToken = (data.PURGE_TOKEN ?? "").trim();
-  if (!purgeToken && data.NODE_ENV === "production") {
-    throw new Error("Invalid configuration: PURGE_TOKEN is required in production");
-  }
+  const purgeToken = data.PURGE_TOKEN.trim();
 
   return {
     ...data,
-    PURGE_TOKEN: purgeToken || "dev-token",
+    PURGE_TOKEN: purgeToken,
     CACHE_404_RESPONSES: data.CACHE_404_RESPONSES ?? true,
     UPSTREAM_WAIT_FOR_NEW_CONTENT: data.UPSTREAM_WAIT_FOR_NEW_CONTENT ?? true,
     DEBUG_HEADERS: data.DEBUG_HEADERS ?? false,

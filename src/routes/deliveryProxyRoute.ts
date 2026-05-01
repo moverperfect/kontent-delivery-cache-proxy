@@ -21,6 +21,10 @@ import { trackDependency, trackException } from "../observability/appInsights.js
 
 type ProxyMode = "delivery" | "preview";
 
+function parseTraceFlags(traceFlags?: string): number {
+  return Number.parseInt(traceFlags ?? "01", 16);
+}
+
 type CacheHdr = "HIT" | "MISS" | "STALE" | "REFRESH" | "BYPASS";
 
 type UpstreamResult = { status: number; headers: Record<string, string>; body: Buffer };
@@ -220,6 +224,7 @@ export async function registerDeliveryProxyRoutes(
               {
                 operationId: request.telemetry!.traceId,
                 parentId: request.telemetry!.spanId,
+                traceFlags: parseTraceFlags(request.telemetry!.traceFlags),
               },
             );
           },
@@ -434,6 +439,7 @@ export async function registerDeliveryProxyRoutes(
         {
           operationId: request.telemetry?.traceId,
           parentId: request.telemetry?.spanId,
+          traceFlags: parseTraceFlags(request.telemetry?.traceFlags),
         },
       );
       await reply.code(502).send({ error: "upstream_fetch_failed", requestId });

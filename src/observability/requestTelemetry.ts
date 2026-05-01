@@ -20,6 +20,10 @@ function parseTraceparent(value?: string): {
   return { traceId: randomBytes(16).toString("hex") };
 }
 
+function parseTraceFlags(traceFlags?: string): number {
+  return Number.parseInt(traceFlags ?? "01", 16);
+}
+
 export const requestTelemetryPlugin = fp(async (app: FastifyInstance, config: AppConfig) => {
   app.addHook("onRequest", async (request) => {
     const parsed = parseTraceparent(
@@ -57,6 +61,7 @@ export const requestTelemetryPlugin = fp(async (app: FastifyInstance, config: Ap
       {
         operationId: request.telemetry.traceId,
         ...(request.telemetry.parentSpanId ? { parentId: request.telemetry.parentSpanId } : {}),
+        traceFlags: parseTraceFlags(request.telemetry.traceFlags),
       },
     );
   });

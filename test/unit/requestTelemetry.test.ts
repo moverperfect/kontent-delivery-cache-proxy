@@ -71,6 +71,7 @@ describe("requestTelemetryPlugin", () => {
     expect(telemetry.properties).toEqual({ source: "unit-test" });
     expect(context.operationId).toMatch(/^[0-9a-f]{32}$/);
     expect(context.parentId).toBeUndefined();
+    expect(context.traceFlags).toBe(1);
 
     await app.close();
   });
@@ -95,6 +96,33 @@ describe("requestTelemetryPlugin", () => {
     expect(context).toEqual({
       operationId: "0123456789abcdef0123456789abcdef",
       parentId: "0123456789abcdef",
+      traceFlags: 1,
+    });
+
+    await app.close();
+  });
+
+  it("preserves inbound unsampled trace flags in request telemetry context", async () => {
+    const { requestTelemetryPlugin } = await import("../../src/observability/requestTelemetry.js");
+    const app = Fastify();
+
+    await app.register(requestTelemetryPlugin, config);
+    app.get("/items/:id", async () => ({ ok: true }));
+
+    await app.inject({
+      method: "GET",
+      url: "/items/123",
+      headers: {
+        traceparent: "00-0123456789abcdef0123456789abcdef-0123456789abcdef-00",
+      },
+    });
+
+    expect(trackRequestMock).toHaveBeenCalledTimes(1);
+    const [, context] = trackRequestMock.mock.calls[0];
+    expect(context).toEqual({
+      operationId: "0123456789abcdef0123456789abcdef",
+      parentId: "0123456789abcdef",
+      traceFlags: 0,
     });
 
     await app.close();
@@ -120,6 +148,7 @@ describe("requestTelemetryPlugin", () => {
     expect(context.operationId).toMatch(/^[0-9a-f]{32}$/);
     expect(context.operationId).not.toBe("00000000000000000000000000000000");
     expect(context.parentId).toBeUndefined();
+    expect(context.traceFlags).toBe(1);
 
     await app.close();
   });

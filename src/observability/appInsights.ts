@@ -1,4 +1,4 @@
-import * as appInsights from "applicationinsights";
+import * as appInsightsNamespace from "applicationinsights";
 import type { TelemetryClient } from "applicationinsights";
 import { randomBytes } from "node:crypto";
 import type { AppConfig } from "../config.js";
@@ -10,6 +10,7 @@ let client: TelemetryClient | undefined;
 export interface TelemetryContext {
   operationId?: string;
   parentId?: string;
+  traceFlags?: number;
 }
 
 interface MinimalSpanContext {
@@ -17,6 +18,10 @@ interface MinimalSpanContext {
   spanId: string;
   traceFlags: number;
 }
+
+const appInsights =
+  (appInsightsNamespace as typeof appInsightsNamespace & { default?: typeof appInsightsNamespace }).default ??
+  appInsightsNamespace;
 
 function isTruthy(value?: string): boolean {
   return value !== "false" && value !== "0";
@@ -65,7 +70,7 @@ function withTelemetryContext<T>(context: TelemetryContext | undefined, fn: () =
   const spanContext: MinimalSpanContext = {
     traceId: context.operationId,
     spanId: context.parentId,
-    traceFlags: 1,
+    traceFlags: context.traceFlags ?? 1,
   };
   const operation = appInsights.startOperation(spanContext);
   if (!operation) return fn();

@@ -50,6 +50,17 @@ docker compose up --build
 
 Set `PURGE_TOKEN` in `docker-compose.yml` (or override via env). It is required in all environments.
 
+### Azure App Service SSH
+
+The container image includes OpenSSH on port `2222` for the Azure App Service SSH console flow described in the Microsoft guide for Linux custom containers.
+
+- `sshd_config` is checked into the repo root with the Azure-required ciphers, MACs, and `Port 2222`.
+- `entrypoint.sh` starts `sshd` before launching the Node app.
+- The image exposes both `8080` for HTTP and `2222` for the App Service SSH bridge.
+- The image uses the required `root` password of `Docker!` for App Service's internal SSH handshake.
+
+This is only intended for App Service's built-in SSH console path; the container still serves the app on `PORT`/`8080` as normal.
+
 ## Scripts
 
 | Command | Description |

@@ -1,17 +1,20 @@
 import { randomBytes } from "node:crypto";
 import Fastify from "fastify";
 import { loadConfig } from "./config.js";
+import type { AppConfig } from "./config.js";
 import { createLogger } from "./observability/logger.js";
 import { Metrics } from "./observability/metrics.js";
 import { registerHealthRoutes } from "./routes/healthRoute.js";
 import { registerDeliveryProxyRoutes } from "./routes/deliveryProxyRoute.js";
 import { registerInternalPurgeRoute } from "./routes/internalPurgeRoute.js";
 import { registerInternalInspectRoutes } from "./routes/internalInspectRoute.js";
+import { initAppInsights } from "./observability/appInsights.js";
+import { requestTelemetryPlugin } from "./observability/requestTelemetry.js";
 
-export async function buildServer() {
-  const config = loadConfig();
+export async function buildServer(config: AppConfig = loadConfig()) {
   const logger = createLogger(config);
   const metrics = new Metrics();
+  initAppInsights(config);
 
   const app = Fastify({
     logger: {
@@ -21,6 +24,7 @@ export async function buildServer() {
     genReqId: () => randomBytes(8).toString("hex"),
   });
 
+  await app.register(requestTelemetryPlugin, config);
   await registerHealthRoutes(app, config);
 
   app.get("/metrics", async (_request, reply) => {

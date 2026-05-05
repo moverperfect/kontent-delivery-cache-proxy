@@ -11,12 +11,19 @@ describe("preview proxy route", () => {
   let app: FastifyInstance;
   let cacheDir: string;
   let capturedUrls: string[] = [];
+  let capturedTraceparents: string[] = [];
+  let capturedTracestates: string[] = [];
 
   beforeEach(async () => {
     capturedUrls = [];
-    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+    capturedTraceparents = [];
+    capturedTracestates = [];
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
       capturedUrls.push(url);
+      const headers = init?.headers as Record<string, string> | undefined;
+      capturedTraceparents.push(headers?.traceparent ?? "");
+      capturedTracestates.push(headers?.tracestate ?? "");
       return new Response(
         kontentListJson([{ codename: "preview_item", type: "article" }]),
         {
@@ -57,6 +64,47 @@ describe("preview proxy route", () => {
     const b = await app.inject({ method: "GET", url });
     expect(a.headers["x-kontent-proxy-cache"]).toBe("MISS");
     expect(b.headers["x-kontent-proxy-cache"]).toBe("HIT");
+  });
+
+  it("preserves inbound unsampled trace flags when proxying upstream", async () => {
+    const r = await app.inject({
+      method: "GET",
+      url: "/preview/pe/items?language=en-US",
+      headers: {
+        traceparent: "00-0123456789abcdef0123456789abcdef-0123456789abcdef-00",
+      },
+    });
+
+    expect(r.statusCode).toBe(200);
+    expect(capturedTraceparents).toHaveLength(1);
+    expect(capturedTraceparents[0]).toMatch(/^00-0123456789abcdef0123456789abcdef-[0-9a-f]{16}-00$/);
+  });
+
+  it("defaults proxied trace flags to 01 for locally generated traces", async () => {
+    const r = await app.inject({
+      method: "GET",
+      url: "/preview/pe/items?language=en-US",
+    });
+
+    expect(r.statusCode).toBe(200);
+    expect(capturedTraceparents).toHaveLength(1);
+    expect(capturedTraceparents[0]).toMatch(/^00-[0-9a-f]{32}-[0-9a-f]{16}-01$/);
+  });
+
+  it("does not forward tracestate when inbound traceparent is invalid", async () => {
+    const r = await app.inject({
+      method: "GET",
+      url: "/preview/pe/items?language=en-US",
+      headers: {
+        traceparent: "00-00000000000000000000000000000000-0000000000000000-00",
+        tracestate: "vendor=value",
+      },
+    });
+
+    expect(r.statusCode).toBe(200);
+    expect(capturedTraceparents).toHaveLength(1);
+    expect(capturedTraceparents[0]).toMatch(/^00-[0-9a-f]{32}-[0-9a-f]{16}-01$/);
+    expect(capturedTracestates[0]).toBe("");
   });
 });
 

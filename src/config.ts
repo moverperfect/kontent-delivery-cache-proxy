@@ -49,6 +49,16 @@ const envSchema = z.object({
     .string()
     .optional()
     .transform((v) => v === "true" || v === "1"),
+
+  APPLICATIONINSIGHTS_CONNECTION_STRING: z.string().optional(),
+  APPINSIGHTS_ENABLED: z.string().optional().transform((v) => v !== "false" && v !== "0"),
+  APPINSIGHTS_SAMPLING_PERCENTAGE: z.coerce.number().min(0).max(100).default(100),
+  APPINSIGHTS_ROLE_NAME: z.string().default("kontent-cache-proxy"),
+  APPINSIGHTS_ENABLE_REQUEST_TRACKING: z.string().optional().transform((v) => v !== "false" && v !== "0"),
+  APPINSIGHTS_ENABLE_DEPENDENCY_TRACKING: z.string().optional().transform((v) => v !== "false" && v !== "0"),
+  APPINSIGHTS_ENABLE_AVAILABILITY_TRACKING: z.string().optional().transform((v) => v !== "false" && v !== "0"),
+  APPINSIGHTS_TRACK_HEALTH_ENDPOINTS: z.string().optional().transform((v) => v === "true" || v === "1"),
+  APPINSIGHTS_REDACT_QUERY_VALUES: z.string().optional().transform((v) => v !== "false" && v !== "0"),
 });
 
 export type AppConfig = Omit<z.infer<typeof envSchema>, "PURGE_TOKEN"> & {
@@ -72,5 +82,12 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     DEBUG_HEADERS: data.DEBUG_HEADERS ?? false,
     ENABLE_WARM_ENDPOINT: data.ENABLE_WARM_ENDPOINT ?? false,
     ENABLE_GRAPHQL: data.ENABLE_GRAPHQL ?? false,
+    APPINSIGHTS_ENABLED:
+    data.APPINSIGHTS_ENABLED ?? Boolean(data.APPLICATIONINSIGHTS_CONNECTION_STRING),
+    APPINSIGHTS_ENABLE_REQUEST_TRACKING: data.APPINSIGHTS_ENABLE_REQUEST_TRACKING ?? true,
+    APPINSIGHTS_ENABLE_DEPENDENCY_TRACKING: data.APPINSIGHTS_ENABLE_DEPENDENCY_TRACKING ?? true,
+    APPINSIGHTS_ENABLE_AVAILABILITY_TRACKING: data.APPINSIGHTS_ENABLE_AVAILABILITY_TRACKING ?? true,
+    APPINSIGHTS_TRACK_HEALTH_ENDPOINTS: data.APPINSIGHTS_TRACK_HEALTH_ENDPOINTS ?? false,
+    APPINSIGHTS_REDACT_QUERY_VALUES: data.APPINSIGHTS_REDACT_QUERY_VALUES ?? true,
   };
 }

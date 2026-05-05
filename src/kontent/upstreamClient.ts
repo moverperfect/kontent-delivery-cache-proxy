@@ -1,6 +1,17 @@
 import type { AppConfig } from "../config.js";
 
 export interface UpstreamFetchParams {
+  telemetry?: {
+    onAttempt?: (meta: {
+      attempt: number;
+      maxAttempts: number;
+      startTimeMs: number;
+      durationMs: number;
+      success: boolean;
+      statusCode?: number;
+      timedOut: boolean;
+    }) => void;
+  };
   url: string;
   method: string;
   headers: Record<string, string>;
@@ -24,6 +35,23 @@ export async function fetchUpstream(
 ): Promise<UpstreamFetchResult> {
   const maxAttempts = config.UPSTREAM_RETRY_COUNT + 1;
   let lastErr: unknown;
+
+  const emitAttempt = (meta: {
+    attempt: number;
+    maxAttempts: number;
+    startTimeMs: number;
+    durationMs: number;
+    success: boolean;
+    statusCode?: number;
+    timedOut: boolean;
+  }) => {
+    try {
+      params.telemetry?.onAttempt?.(meta);
+    } catch {
+      /* telemetry must not break upstream fetches */
+    }
+  };
+
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), config.UPSTREAM_TIMEOUT_MS);
@@ -31,6 +59,7 @@ export async function fetchUpstream(
     if (config.UPSTREAM_WAIT_FOR_NEW_CONTENT) {
       mergedHeaders["x-kc-wait-for-loading-new-content"] = "true";
     }
+    const startTimeMs = Date.now();
     try {
       const res = await fetch(params.url, {
         method: params.method,
@@ -50,6 +79,15 @@ export async function fetchUpstream(
         headers[k.toLowerCase()] = v;
       });
 
+      emitAttempt({
+        attempt: attempt + 1,
+        maxAttempts,
+        startTimeMs,
+        durationMs: Date.now() - startTimeMs,
+        success: true,
+        statusCode: res.status,
+        timedOut: false,
+      });
       return {
         status: res.status,
         headers,
@@ -57,6 +95,15 @@ export async function fetchUpstream(
       };
     } catch (e) {
       clearTimeout(timeout);
+      const timedOut = e instanceof Error && e.name === "AbortError";
+      emitAttempt({
+        attempt: attempt + 1,
+        maxAttempts,
+        startTimeMs,
+        durationMs: Date.now() - startTimeMs,
+        success: false,
+        timedOut,
+      });
       lastErr = e;
       if (attempt < maxAttempts - 1) {
         await sleep(config.UPSTREAM_RETRY_BACKOFF_MS * Math.pow(2, attempt));

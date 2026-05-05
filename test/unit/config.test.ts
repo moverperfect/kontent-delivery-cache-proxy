@@ -18,4 +18,15 @@ describe("loadConfig PURGE_TOKEN requirements", () => {
 
     expect(cfg.PURGE_TOKEN).toBe("test-secret");
   });
+
+  it("defaults cache save throttle settings", () => {
+    const cfg = loadConfig({
+      NODE_ENV: "development",
+      PURGE_TOKEN: "test-secret",
+    } as NodeJS.ProcessEnv);
+
+    expect(cfg.CACHE_SAVE_MAX_CONCURRENT).toBe(4);
+    expect(cfg.CACHE_SAVE_WINDOW_MS).toBe(1000);
+    expect(cfg.CACHE_SAVE_MAX_PER_WINDOW).toBe(4);
+  });
 });

@@ -19,6 +19,9 @@ const envSchema = z.object({
   CACHE_STALE_WHILE_REVALIDATE_SECONDS: z.coerce.number().int().min(0).default(3600),
   CACHE_STALE_IF_ERROR_SECONDS: z.coerce.number().int().min(0).default(86400),
   CACHE_MAX_BODY_BYTES: z.coerce.number().int().positive().default(10485760),
+  CACHE_SAVE_MAX_CONCURRENT: z.coerce.number().int().min(0).default(4),
+  CACHE_SAVE_WINDOW_MS: z.coerce.number().int().positive().default(1000),
+  CACHE_SAVE_MAX_PER_WINDOW: z.coerce.number().int().min(0).default(4),
   CACHE_404_RESPONSES: z
     .string()
     .optional()

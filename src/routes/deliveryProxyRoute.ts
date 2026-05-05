@@ -7,6 +7,10 @@ import {
   isStatusCacheable,
 } from "../cache/cachePolicy.js";
 import type { CacheMetadata } from "../cache/cacheMetadata.js";
+import {
+  CacheSaveConcurrencyLimiter,
+  CacheSaveWindowLimiter,
+} from "../cache/cacheSaveRateLimiter.js";
 import { readBodyBuffer, readMetadata, storeCacheObject } from "../cache/fileCacheStore.js";
 import { extractDependencyKeys } from "../kontent/dependencyExtractor.js";
 import { fetchUpstream } from "../kontent/upstreamClient.js";
@@ -24,10 +28,13 @@ type CacheHdr = "HIT" | "MISS" | "STALE" | "REFRESH" | "BYPASS";
 
 type UpstreamResult = { status: number; headers: Record<string, string>; body: Buffer };
 
+type CacheSaveSkipReason = "concurrent_limit" | "window_limit";
+
 interface FetchAndStoreOutcome {
   response: UpstreamResult;
   upstreamDurationMs: number;
   stored: boolean;
+  cacheSaveSkipReason?: CacheSaveSkipReason;
 }
 
 const inflight = new Map<string, Promise<FetchAndStoreOutcome>>();
@@ -117,6 +124,11 @@ export async function registerDeliveryProxyRoutes(
   },
 ): Promise<void> {
   const { config, metrics, logger } = deps;
+  const cacheSaveConcurrency = new CacheSaveConcurrencyLimiter(config.CACHE_SAVE_MAX_CONCURRENT);
+  const cacheSaveWindow = new CacheSaveWindowLimiter(
+    config.CACHE_SAVE_WINDOW_MS,
+    config.CACHE_SAVE_MAX_PER_WINDOW,
+  );
 
   async function handleProxy(
     request: FastifyRequest,
@@ -251,40 +263,83 @@ export async function registerDeliveryProxyRoutes(
           res.body.byteLength <= config.CACHE_MAX_BODY_BYTES;
 
         let stored = false;
+        let cacheSaveSkipReason: CacheSaveSkipReason | undefined;
         if (cacheable) {
-          const parsed =
-            res.body.byteLength > 0 ? safeJsonParse(res.body.toString("utf8")) : {};
-          const deps = extractDependencyKeys(parsed, {
-            environmentId,
-            mode,
-            path: upstreamPath,
-            query,
-            language: query.get("language") ?? query.get("culture") ?? undefined,
-          });
-
-          await storeCacheObject({
-            config,
-            cacheKey,
-            canonicalKeyInput: canonicalInput,
-            method,
-            environmentId,
-            mode,
-            upstreamUrl,
-            requestHeadersForReplay: redactHeaders(collectForwardHeaders(request)),
-            status: res.status,
-            responseHeaders: res.headers,
-            body: res.body,
-            dependencyKeys: deps,
-            ttlSeconds: config.CACHE_DEFAULT_TTL_SECONDS,
-            staleWhileRevalidateSeconds: config.CACHE_STALE_WHILE_REVALIDATE_SECONDS,
-          });
-          stored = true;
+          const semEnabled = config.CACHE_SAVE_MAX_CONCURRENT > 0;
+          const winEnabled = config.CACHE_SAVE_MAX_PER_WINDOW > 0;
+          let acquiredSem = false;
+          let windowReleaseToken: number | undefined;
+          if (semEnabled) {
+            if (!cacheSaveConcurrency.tryAcquire()) {
+              metrics.recordCacheSaveSkipConcurrent();
+              cacheSaveSkipReason = "concurrent_limit";
+            } else {
+              acquiredSem = true;
+            }
+          }
+          if (!cacheSaveSkipReason && winEnabled) {
+            const win = cacheSaveWindow.tryReserve(Date.now());
+            if (!win.ok) {
+              metrics.recordCacheSaveSkipWindow();
+              cacheSaveSkipReason = "window_limit";
+              if (acquiredSem) {
+                cacheSaveConcurrency.release();
+                acquiredSem = false;
+              }
+            } else if ("token" in win) {
+              windowReleaseToken = win.token;
+            }
+          }
+          if (!cacheSaveSkipReason) {
+            try {
+              const parsed =
+                res.body.byteLength > 0 ? safeJsonParse(res.body.toString("utf8")) : {};
+              const deps = extractDependencyKeys(parsed, {
+                environmentId,
+                mode,
+                path: upstreamPath,
+                query,
+                language: query.get("language") ?? query.get("culture") ?? undefined,
+              });
+              const tStore = Date.now();
+              await storeCacheObject({
+                config,
+                cacheKey,
+                canonicalKeyInput: canonicalInput,
+                method,
+                environmentId,
+                mode,
+                upstreamUrl,
+                requestHeadersForReplay: redactHeaders(collectForwardHeaders(request)),
+                status: res.status,
+                responseHeaders: res.headers,
+                body: res.body,
+                dependencyKeys: deps,
+                ttlSeconds: config.CACHE_DEFAULT_TTL_SECONDS,
+                staleWhileRevalidateSeconds: config.CACHE_STALE_WHILE_REVALIDATE_SECONDS,
+              });
+              metrics.recordCacheSaveComplete(Date.now() - tStore);
+              stored = true;
+            } catch (e) {
+              if (windowReleaseToken !== undefined) {
+                cacheSaveWindow.releaseLastReserved(windowReleaseToken);
+              }
+              throw e;
+            } finally {
+              if (acquiredSem) {
+                cacheSaveConcurrency.release();
+              }
+            }
+          }
         }
 
-        return { response: res, upstreamDurationMs: dur, stored };
+        return { response: res, upstreamDurationMs: dur, stored, cacheSaveSkipReason };
       });
 
       upstreamMs = outcome.upstreamDurationMs;
+      if (outcome.cacheSaveSkipReason && config.DEBUG_HEADERS) {
+        reply.header("x-kontent-proxy-cache-save-skipped", outcome.cacheSaveSkipReason);
+      }
       const result = outcome.response;
 
       if (outcome.stored) {

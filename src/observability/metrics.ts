@@ -12,6 +12,10 @@ export class Metrics {
   upstreamErrorsTotal = 0;
   purgeRequestsTotal = 0;
   purgedObjectsTotal = 0;
+  cacheSaveSkippedConcurrentTotal = 0;
+  cacheSaveSkippedWindowTotal = 0;
+  cacheSaveCompletedTotal = 0;
+  cacheSaveDurationMsSum = 0;
 
   recordRequest(cacheStatus: CacheStatusLabel): void {
     this.requestsTotal++;
@@ -19,6 +23,19 @@ export class Metrics {
     else if (cacheStatus === "MISS") this.cacheMissesTotal++;
     else if (cacheStatus === "STALE") this.cacheStaleTotal++;
     else if (cacheStatus === "REFRESH") this.refreshTotal++;
+  }
+
+  recordCacheSaveSkipConcurrent(): void {
+    this.cacheSaveSkippedConcurrentTotal++;
+  }
+
+  recordCacheSaveSkipWindow(): void {
+    this.cacheSaveSkippedWindowTotal++;
+  }
+
+  recordCacheSaveComplete(durationMs: number): void {
+    this.cacheSaveCompletedTotal++;
+    this.cacheSaveDurationMsSum += durationMs;
   }
 
   prometheusText(_config: AppConfig): string {
@@ -43,6 +60,14 @@ export class Metrics {
     lines.push(`kontent_proxy_purge_requests_total ${this.purgeRequestsTotal}`);
     help("kontent_proxy_purged_objects_total", "Objects purged");
     lines.push(`kontent_proxy_purged_objects_total ${this.purgedObjectsTotal}`);
+    help("kontent_proxy_cache_save_skipped_concurrent_total", "Cache persist skipped: concurrency limit");
+    lines.push(`kontent_proxy_cache_save_skipped_concurrent_total ${this.cacheSaveSkippedConcurrentTotal}`);
+    help("kontent_proxy_cache_save_skipped_window_total", "Cache persist skipped: sliding window limit");
+    lines.push(`kontent_proxy_cache_save_skipped_window_total ${this.cacheSaveSkippedWindowTotal}`);
+    help("kontent_proxy_cache_save_completed_total", "Completed cache persist calls");
+    lines.push(`kontent_proxy_cache_save_completed_total ${this.cacheSaveCompletedTotal}`);
+    help("kontent_proxy_cache_save_duration_ms_sum", "Sum of cache persist durations in ms");
+    lines.push(`kontent_proxy_cache_save_duration_ms_sum ${this.cacheSaveDurationMsSum}`);
     return lines.join("\n") + "\n";
   }
 }
